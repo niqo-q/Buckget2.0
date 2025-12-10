@@ -1,9 +1,18 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { ArrowLeft, ArrowRight, User, CreditCard, Phone, Mail } from 'lucide-react';
+import { ArrowLeft, ArrowRight, User, CreditCard, Phone, Mail, Lock, Eye, EyeOff, DollarSign } from 'lucide-react';
+
+interface KYCData {
+  full_name: string;
+  email: string;
+  password: string;
+  ic_number: string;
+  phone: string;
+  hourly_rate: number;
+}
 
 interface KYCProps {
-  onNext: (data: { name: string; ic: string }) => void;
+  onNext: (data: KYCData) => void;
   onBack: () => void;
 }
 
@@ -13,8 +22,11 @@ export function KYC({ onNext, onBack }: KYCProps) {
     ic: '',
     email: '',
     phone: '',
+    password: '',
+    hourlyRate: '',
   });
 
+  const [showPassword, setShowPassword] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const validateForm = () => {
@@ -27,7 +39,7 @@ export function KYC({ onNext, onBack }: KYCProps) {
     if (!formData.ic.trim()) {
       newErrors.ic = 'IC number is required';
     } else if (!/^\d{12}$/.test(formData.ic.replace(/-/g, ''))) {
-      newErrors.ic = 'Invalid IC format';
+      newErrors.ic = 'Invalid IC format (12 digits)';
     }
 
     if (!formData.email.trim()) {
@@ -38,8 +50,18 @@ export function KYC({ onNext, onBack }: KYCProps) {
 
     if (!formData.phone.trim()) {
       newErrors.phone = 'Phone number is required';
-    } else if (!/^(\+?6?01)[0-9]{8,9}$/.test(formData.phone.replace(/[\s-]/g, ''))) {
-      newErrors.phone = 'Invalid phone format';
+    }
+
+    if (!formData.password.trim()) {
+      newErrors.password = 'Password is required';
+    } else if (formData.password.length < 6) {
+      newErrors.password = 'Password must be at least 6 characters';
+    }
+
+    if (!formData.hourlyRate.trim()) {
+      newErrors.hourlyRate = 'Hourly rate is required';
+    } else if (isNaN(parseFloat(formData.hourlyRate)) || parseFloat(formData.hourlyRate) <= 0) {
+      newErrors.hourlyRate = 'Enter a valid hourly rate';
     }
 
     setErrors(newErrors);
@@ -50,15 +72,19 @@ export function KYC({ onNext, onBack }: KYCProps) {
     e.preventDefault();
     if (validateForm()) {
       onNext({
-        name: formData.fullName,
-        ic: formData.ic,
+        full_name: formData.fullName,
+        email: formData.email,
+        password: formData.password,
+        ic_number: formData.ic,
+        phone: formData.phone,
+        hourly_rate: parseFloat(formData.hourlyRate),
       });
     }
   };
 
   return (
     <div className="min-h-screen bg-[#2820FF]">
-      <div className="max-w-md mx-auto p-6">
+      <div className="max-w-md mx-auto p-6 pb-32">
         <motion.button
           onClick={onBack}
           className="flex items-center gap-2 text-white/70 hover:text-white mb-6"
@@ -76,13 +102,13 @@ export function KYC({ onNext, onBack }: KYCProps) {
           animate={{ opacity: 1, y: 0 }}
         >
           <h1
-            className="text-5xl text-white mb-3"
+            className="text-4xl text-white mb-3"
             style={{ fontFamily: '"Momo Trust Display", sans-serif', fontWeight: 800 }}
           >
-            VERIFY IDENTITY
+            CREATE ACCOUNT
           </h1>
           <p className="text-white/70" style={{ fontFamily: 'Inter, sans-serif' }}>
-            We need to verify your identity to comply with regulations
+            Set up your BuckGet account
           </p>
         </motion.div>
 
@@ -94,7 +120,7 @@ export function KYC({ onNext, onBack }: KYCProps) {
 
         <motion.form
           onSubmit={handleSubmit}
-          className="space-y-5"
+          className="space-y-4"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 0.1 }}
@@ -104,7 +130,7 @@ export function KYC({ onNext, onBack }: KYCProps) {
               className="block text-sm text-white/70 mb-2"
               style={{ fontFamily: 'Inter, sans-serif' }}
             >
-              Full Name (as per IC)
+              Full Name
             </label>
             <div className="relative">
               <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#2820FF]/50" />
@@ -121,31 +147,6 @@ export function KYC({ onNext, onBack }: KYCProps) {
             </div>
             {errors.fullName && (
               <p className="text-[#FF44EC] text-sm mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>{errors.fullName}</p>
-            )}
-          </div>
-
-          <div>
-            <label
-              className="block text-sm text-white/70 mb-2"
-              style={{ fontFamily: 'Inter, sans-serif' }}
-            >
-              IC Number
-            </label>
-            <div className="relative">
-              <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#2820FF]/50" />
-              <input
-                type="text"
-                value={formData.ic}
-                onChange={(e) =>
-                  setFormData({ ...formData, ic: e.target.value })
-                }
-                className="w-full pl-12 pr-4 py-4 bg-white border-2 border-transparent rounded-[2.5rem] focus:outline-none focus:border-[#FEFF09] text-[#0F172A]"
-                style={{ fontFamily: 'Inter, sans-serif' }}
-                placeholder="990101-01-1234"
-              />
-            </div>
-            {errors.ic && (
-              <p className="text-[#FF44EC] text-sm mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>{errors.ic}</p>
             )}
           </div>
 
@@ -179,6 +180,63 @@ export function KYC({ onNext, onBack }: KYCProps) {
               className="block text-sm text-white/70 mb-2"
               style={{ fontFamily: 'Inter, sans-serif' }}
             >
+              Password
+            </label>
+            <div className="relative">
+              <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#2820FF]/50" />
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={formData.password}
+                onChange={(e) =>
+                  setFormData({ ...formData, password: e.target.value })
+                }
+                className="w-full pl-12 pr-12 py-4 bg-white border-2 border-transparent rounded-[2.5rem] focus:outline-none focus:border-[#FEFF09] text-[#0F172A]"
+                style={{ fontFamily: 'Inter, sans-serif' }}
+                placeholder="••••••••"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute right-4 top-1/2 -translate-y-1/2 text-[#2820FF]/50 hover:text-[#2820FF]"
+              >
+                {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+              </button>
+            </div>
+            {errors.password && (
+              <p className="text-[#FF44EC] text-sm mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>{errors.password}</p>
+            )}
+          </div>
+
+          <div>
+            <label
+              className="block text-sm text-white/70 mb-2"
+              style={{ fontFamily: 'Inter, sans-serif' }}
+            >
+              IC Number
+            </label>
+            <div className="relative">
+              <CreditCard className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#2820FF]/50" />
+              <input
+                type="text"
+                value={formData.ic}
+                onChange={(e) =>
+                  setFormData({ ...formData, ic: e.target.value })
+                }
+                className="w-full pl-12 pr-4 py-4 bg-white border-2 border-transparent rounded-[2.5rem] focus:outline-none focus:border-[#FEFF09] text-[#0F172A]"
+                style={{ fontFamily: 'Inter, sans-serif' }}
+                placeholder="990101011234"
+              />
+            </div>
+            {errors.ic && (
+              <p className="text-[#FF44EC] text-sm mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>{errors.ic}</p>
+            )}
+          </div>
+
+          <div>
+            <label
+              className="block text-sm text-white/70 mb-2"
+              style={{ fontFamily: 'Inter, sans-serif' }}
+            >
               Phone Number
             </label>
             <div className="relative">
@@ -196,6 +254,32 @@ export function KYC({ onNext, onBack }: KYCProps) {
             </div>
             {errors.phone && (
               <p className="text-[#FF44EC] text-sm mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>{errors.phone}</p>
+            )}
+          </div>
+
+          <div>
+            <label
+              className="block text-sm text-white/70 mb-2"
+              style={{ fontFamily: 'Inter, sans-serif' }}
+            >
+              Hourly Rate (RM)
+            </label>
+            <div className="relative">
+              <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-[#2820FF]/50" />
+              <input
+                type="number"
+                step="0.01"
+                value={formData.hourlyRate}
+                onChange={(e) =>
+                  setFormData({ ...formData, hourlyRate: e.target.value })
+                }
+                className="w-full pl-12 pr-4 py-4 bg-white border-2 border-transparent rounded-[2.5rem] focus:outline-none focus:border-[#FEFF09] text-[#0F172A]"
+                style={{ fontFamily: 'Inter, sans-serif' }}
+                placeholder="25.00"
+              />
+            </div>
+            {errors.hourlyRate && (
+              <p className="text-[#FF44EC] text-sm mt-1" style={{ fontFamily: 'Inter, sans-serif' }}>{errors.hourlyRate}</p>
             )}
           </div>
 

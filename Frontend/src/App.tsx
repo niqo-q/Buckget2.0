@@ -1,4 +1,4 @@
-import { useState, createContext, useContext } from 'react';
+import { useState, useEffect, createContext, useContext } from 'react';
 import { motion } from 'motion/react';
 import { Home, ArrowLeftRight, Wallet, Bot, User } from 'lucide-react';
 import { AnimatePresence } from 'motion/react';
@@ -8,11 +8,23 @@ import { BucketsPage } from './components/buckget/BucketsPage';
 import { AIAgent } from './components/buckget/AIAgent';
 import { ProfilePage } from './components/buckget/ProfilePage';
 import { LandingPage } from './components/buckget/LandingPage';
+import { LoginPage } from './components/buckget/LoginPage';
 import { KYC } from './components/page/onboarding/KYC';
 import { FileUpload } from './components/page/onboarding/FileUpload';
+import { 
+  authApi, 
+  bucketsApi, 
+  transactionsApi, 
+  setToken, 
+  getToken,
+  isAuthenticated,
+  type User as ApiUser,
+  type Bucket as ApiBucket,
+  type Transaction as ApiTransaction 
+} from './lib/api';
 import './styles/globals.css';
 
-// Wallet Context
+// Wallet Context Types
 interface Bucket {
   id: string;
   name: string;
@@ -35,12 +47,14 @@ interface WalletContextType {
   wallet: { currentAvailable: number; totalSaved: number };
   buckets: Bucket[];
   transactions: Transaction[];
+  isLoading: boolean;
   updateWallet: (available: number, saved: number) => void;
   addTransaction: (transaction: Omit<Transaction, 'id'>) => void;
   updateBucket: (id: string, amount: number) => void;
   addBucket: (bucket: Omit<Bucket, 'id'>) => void;
   deleteBucket: (id: string) => void;
   updateBucketDetails: (id: string, updates: Partial<Omit<Bucket, 'id'>>) => void;
+  refreshData: () => Promise<void>;
 }
 
 const WalletContext = createContext<WalletContextType | undefined>(undefined);
@@ -52,62 +66,249 @@ export const useWallet = () => {
 };
 
 type Page = 'home' | 'transfer' | 'buckets' | 'ai' | 'profile';
-type OnboardingStep = 'landing' | 'kyc' | 'fileUpload' | 'complete';
+type OnboardingStep = 'landing' | 'login' | 'kyc' | 'fileUpload' | 'complete';
+
+// Registration data type
+interface RegistrationData {
+  full_name: string;
+  email: string;
+  password: string;
+  ic_number?: string;
+  phone?: string;
+  hourly_rate?: number;
+}
 
 export default function App() {
   const [onboardingStep, setOnboardingStep] = useState<OnboardingStep>('landing');
   const [currentPage, setCurrentPage] = useState<Page>('home');
+  const [isLoading, setIsLoading] = useState(false);
+  const [registrationData, setRegistrationData] = useState<RegistrationData | null>(null);
 
-  const [user] = useState({ name: 'Tao', hourlyRate: 25.0 });
+  // User and wallet state - starts empty, loaded from API
+  const [user, setUser] = useState({ name: '', hourlyRate: 0 });
   const [wallet, setWallet] = useState({
-    currentAvailable: 84.0,
-    totalSaved: 1250.0,
+    currentAvailable: 0,
+    totalSaved: 0,
   });
-  const [buckets, setBuckets] = useState<Bucket[]>([
-    { id: '1', name: 'Emergency Fund', target: 5000, current: 450, icon: 'Shield', color: 'bg-[#FF44EC]' },
-    { id: '2', name: 'Vacation', target: 3000, current: 820, icon: 'Plane', color: 'bg-white/10' },
-    { id: '3', name: 'New Phone', target: 2500, current: 1200, icon: 'Smartphone', color: 'bg-white/10' },
-    { id: '4', name: 'Gaming Setup', target: 4000, current: 650, icon: 'Gamepad2', color: 'bg-[#FF44EC]' },
-    { id: '5', name: 'House Deposit', target: 20000, current: 3400, icon: 'Home', color: 'bg-white/10' },
-    { id: '6', name: 'Education', target: 6000, current: 2100, icon: 'BookOpen', color: 'bg-white/10' },
-  ]);
-  const [transactions, setTransactions] = useState<Transaction[]>([
-    { id: '1', type: 'unlock', amount: 50, date: new Date('2024-12-05'), description: 'Wage unlock' },
-    { id: '2', type: 'stash', amount: 30, date: new Date('2024-12-04'), description: 'Auto save to Emergency' },
-  ]);
+  const [buckets, setBuckets] = useState<Bucket[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
 
-  const updateWallet = (available: number, saved: number) => {
+  // Check for existing auth on mount
+  useEffect(() => {
+    if (getToken()) {
+      // User has a token, try to load their data
+      loadUserData();
+    }
+  }, []);
+
+  // Load user data from API
+  const loadUserData = async () => {
+    if (!isAuthenticated()) return;
+    
+    setIsLoading(true);
+    try {
+      // Load user profile
+      const userData = await authApi.me();
+      setUser({
+        name: userData.full_name,
+        hourlyRate: userData.hourly_rate,
+      });
+      setWallet({
+        currentAvailable: userData.current_available,
+        totalSaved: userData.total_saved,
+      });
+
+      // Load buckets
+      const bucketsData = await bucketsApi.list();
+      setBuckets(bucketsData.map(b => ({
+        id: b.id,
+        name: b.name,
+        target: b.target,
+        current: b.current,
+        icon: b.icon,
+        color: b.color,
+      })));
+
+      // Load transactions
+      const transactionsData = await transactionsApi.list();
+      setTransactions(transactionsData.map(t => ({
+        id: t.id,
+        type: t.type,
+        amount: t.amount,
+        date: new Date(t.created_at),
+        description: t.description || '',
+      })));
+
+      // Auto-navigate to app if we have valid data
+      setOnboardingStep('complete');
+    } catch (error) {
+      console.error('Failed to load user data:', error);
+      // Token might be invalid, clear it
+      setToken(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle login
+  const handleLogin = async (email: string, password: string) => {
+    setIsLoading(true);
+    try {
+      await authApi.login(email, password);
+      await loadUserData();
+      setOnboardingStep('complete');
+    } catch (error) {
+      console.error('Login failed:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle registration
+  const handleRegister = async (data: { 
+    email: string; 
+    password: string; 
+    full_name: string; 
+    hourly_rate?: number;
+    ic_number?: string;
+    phone?: string;
+  }) => {
+    setIsLoading(true);
+    try {
+      await authApi.register(data);
+      // Auto-login after registration
+      await authApi.login(data.email, data.password);
+      await loadUserData();
+      setOnboardingStep('complete');
+    } catch (error) {
+      console.error('Registration failed:', error);
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle logout
+  const handleLogout = () => {
+    setToken(null);
+    setUser({ name: '', hourlyRate: 0 });
+    setWallet({ currentAvailable: 0, totalSaved: 0 });
+    setBuckets([]);
+    setTransactions([]);
+    setOnboardingStep('landing');
+  };
+
+  const updateWallet = async (available: number, saved: number) => {
     setWallet({ currentAvailable: available, totalSaved: saved });
+    // Note: wallet updates happen through transactions API
   };
 
-  const addTransaction = (transaction: Omit<Transaction, 'id'>) => {
-    setTransactions([
-      { ...transaction, id: Date.now().toString() },
-      ...transactions,
-    ]);
+  const addTransaction = async (transaction: Omit<Transaction, 'id'>) => {
+    try {
+      const newTx = await transactionsApi.create({
+        type: transaction.type,
+        amount: transaction.amount,
+        description: transaction.description,
+      });
+      
+      setTransactions([
+        {
+          id: newTx.id,
+          type: newTx.type,
+          amount: newTx.amount,
+          date: new Date(newTx.created_at),
+          description: newTx.description || '',
+        },
+        ...transactions,
+      ]);
+    } catch (error) {
+      console.error('Failed to add transaction:', error);
+      // Fallback to local state
+      setTransactions([
+        { ...transaction, id: Date.now().toString() },
+        ...transactions,
+      ]);
+    }
   };
 
-  const updateBucket = (id: string, amount: number) => {
-    setBuckets(buckets.map(b =>
-      b.id === id ? { ...b, current: b.current + amount } : b
-    ));
+  const updateBucket = async (id: string, amount: number) => {
+    try {
+      const bucket = buckets.find(b => b.id === id);
+      if (bucket) {
+        await bucketsApi.update(id, { current: bucket.current + amount });
+      }
+      setBuckets(buckets.map(b =>
+        b.id === id ? { ...b, current: b.current + amount } : b
+      ));
+    } catch (error) {
+      console.error('Failed to update bucket:', error);
+      // Fallback to local state
+      setBuckets(buckets.map(b =>
+        b.id === id ? { ...b, current: b.current + amount } : b
+      ));
+    }
   };
 
-  const addBucket = (bucket: Omit<Bucket, 'id'>) => {
-    setBuckets([
-      { ...bucket, id: Date.now().toString() },
-      ...buckets,
-    ]);
+  const addBucket = async (bucket: Omit<Bucket, 'id'>) => {
+    try {
+      const newBucket = await bucketsApi.create({
+        name: bucket.name,
+        target: bucket.target,
+        current: bucket.current,
+        icon: bucket.icon,
+        color: bucket.color,
+      });
+      
+      setBuckets([
+        {
+          id: newBucket.id,
+          name: newBucket.name,
+          target: newBucket.target,
+          current: newBucket.current,
+          icon: newBucket.icon,
+          color: newBucket.color,
+        },
+        ...buckets,
+      ]);
+    } catch (error) {
+      console.error('Failed to add bucket:', error);
+      // Fallback to local state
+      setBuckets([
+        { ...bucket, id: Date.now().toString() },
+        ...buckets,
+      ]);
+    }
   };
 
-  const deleteBucket = (id: string) => {
-    setBuckets(buckets.filter(b => b.id !== id));
+  const deleteBucket = async (id: string) => {
+    try {
+      await bucketsApi.delete(id);
+      setBuckets(buckets.filter(b => b.id !== id));
+    } catch (error) {
+      console.error('Failed to delete bucket:', error);
+      // Fallback to local state
+      setBuckets(buckets.filter(b => b.id !== id));
+    }
   };
 
-  const updateBucketDetails = (id: string, updates: Partial<Omit<Bucket, 'id'>>) => {
-    setBuckets(buckets.map(b =>
-      b.id === id ? { ...b, ...updates } : b
-    ));
+  const updateBucketDetails = async (id: string, updates: Partial<Omit<Bucket, 'id'>>) => {
+    try {
+      await bucketsApi.update(id, updates);
+      setBuckets(buckets.map(b =>
+        b.id === id ? { ...b, ...updates } : b
+      ));
+    } catch (error) {
+      console.error('Failed to update bucket details:', error);
+      // Fallback to local state
+      setBuckets(buckets.map(b =>
+        b.id === id ? { ...b, ...updates } : b
+      ));
+    }
+  };
+
+  const refreshData = async () => {
+    await loadUserData();
   };
 
   const walletContextValue: WalletContextType = {
@@ -115,12 +316,14 @@ export default function App() {
     wallet,
     buckets,
     transactions,
+    isLoading,
     updateWallet,
     addTransaction,
     updateBucket,
     addBucket,
     deleteBucket,
     updateBucketDetails,
+    refreshData,
   };
 
   const navItems = [
@@ -142,16 +345,36 @@ export default function App() {
       {onboardingStep === 'landing' ? (
         <LandingPage
           onGetStarted={() => setOnboardingStep('kyc')}
-          onLogin={() => setOnboardingStep('complete')}
+          onLogin={() => setOnboardingStep('login')}
+        />
+      ) : onboardingStep === 'login' ? (
+        <LoginPage
+          onLogin={handleLogin}
+          onBack={() => setOnboardingStep('landing')}
         />
       ) : onboardingStep === 'kyc' ? (
         <KYC
-          onNext={() => setOnboardingStep('fileUpload')}
+          onNext={(data) => {
+            setRegistrationData(data);
+            setOnboardingStep('fileUpload');
+          }}
           onBack={() => setOnboardingStep('landing')}
         />
       ) : onboardingStep === 'fileUpload' ? (
         <FileUpload
-          onComplete={() => setOnboardingStep('complete')}
+          onComplete={async () => {
+            if (registrationData) {
+              try {
+                await handleRegister(registrationData);
+              } catch (error) {
+                console.error('Registration failed:', error);
+                alert('Registration failed. Please try again.');
+                setOnboardingStep('kyc');
+              }
+            } else {
+              setOnboardingStep('complete');
+            }
+          }}
           onBack={() => setOnboardingStep('kyc')}
         />
       ) : onboardingStep === 'complete' ? (
@@ -176,7 +399,7 @@ export default function App() {
                 {currentPage === 'transfer' && <TransferPage onBack={() => setCurrentPage('buckets')} />}
                 {currentPage === 'buckets' && <BucketsPage />}
                 {currentPage === 'ai' && <AIAgent />}
-                {currentPage === 'profile' && <ProfilePage />}
+                {currentPage === 'profile' && <ProfilePage onLogout={handleLogout} />}
               </motion.div>
             </AnimatePresence>
 

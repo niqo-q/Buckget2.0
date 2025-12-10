@@ -46,3 +46,17 @@ coverage/
 
 # Gemini/Agent artifacts (optional - remove if you want to track these)
 .gemini/
+
+# Backend specific
+Backend/.env
+Backend/cert/*.pem
+Backend/cert/*.crt
+Backend/cert/*.key
+Backend/__pycache__/
+Backend/app/__pycache__/
+Backend/app/routers/__pycache__/
+*.pyc
+
+# Screenshots (temp files)
+*.png
+!Frontend/src/assets/*.png

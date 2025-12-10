@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Send } from 'lucide-react';
 import { useWallet } from '../../App';
 import imgBotl from 'assets/chatbot ai.png';
+import { aiAgentApi, isAuthenticated } from '../../lib/api';
 
 interface Message {
   id: string;
@@ -42,7 +43,8 @@ export function AIAgent() {
     scrollToBottom();
   }, [messages]);
 
-  const getAIResponse = (userMessage: string): Message => {
+  // Fallback local response when API is not available
+  const getLocalResponse = (userMessage: string): Message => {
     const lowerMessage = userMessage.toLowerCase();
 
     if (lowerMessage.includes('split') || lowerMessage.includes('suggest')) {
@@ -87,7 +89,7 @@ export function AIAgent() {
     };
   };
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim()) return;
 
     const userMessage: Message = {
@@ -97,14 +99,36 @@ export function AIAgent() {
     };
 
     setMessages([...messages, userMessage]);
+    const userInput = input;
     setInput('');
     setIsTyping(true);
 
-    setTimeout(() => {
-      const aiResponse = getAIResponse(input);
+    try {
+      // Try to use the backend API if authenticated
+      if (isAuthenticated()) {
+        const response = await aiAgentApi.query(userInput);
+        const aiMessage: Message = {
+          id: Date.now().toString(),
+          text: response.reply,
+          sender: 'ai',
+          action: response.action as Message['action'],
+        };
+        setMessages((prev) => [...prev, aiMessage]);
+      } else {
+        // Fallback to local response
+        setTimeout(() => {
+          const aiResponse = getLocalResponse(userInput);
+          setMessages((prev) => [...prev, aiResponse]);
+        }, 800);
+      }
+    } catch (error) {
+      // Fallback to local response on error
+      console.log('Using local AI response (API not available)');
+      const aiResponse = getLocalResponse(userInput);
       setMessages((prev) => [...prev, aiResponse]);
+    } finally {
       setIsTyping(false);
-    }, 1000);
+    }
   };
 
   const quickActions = ['Suggest a split', 'Show my goals', 'Budget tips'];

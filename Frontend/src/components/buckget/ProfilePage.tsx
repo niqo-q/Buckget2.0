@@ -2,7 +2,11 @@ import { motion } from 'motion/react';
 import { User, Mail, Phone, CreditCard, Bell, Lock, HelpCircle, LogOut, ChevronRight, Crown } from 'lucide-react';
 import { useWallet } from '../../App';
 
-export function ProfilePage() {
+interface ProfilePageProps {
+  onLogout?: () => void;
+}
+
+export function ProfilePage({ onLogout }: ProfilePageProps) {
   const { user } = useWallet();
 
   const menuSections = [
@@ -148,6 +152,7 @@ export function ProfilePage() {
 
         {/* Logout Button */}
         <motion.button
+          onClick={onLogout}
           className="w-full bg-white rounded-3xl p-4 flex items-center justify-center gap-2 text-red-500 hover:bg-red-50 transition-colors mb-20"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
